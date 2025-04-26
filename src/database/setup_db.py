@@ -1,49 +1,25 @@
-import os 
-form sqlalchemy import create_engine, Column, Integer, String, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+import os
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from models import Base, User, Food, Order
 
-Base = declarative_base()
+# SQLite database URL
+DATABASE_URL = "sqlite:///test.db"
 
-
-class User(Base):
-    __tablename__ = 'users'
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    email = Column(String, unique=True)
-    password = Column(String, uniqwue=True)
-
-    orders = relationship("Order", back_populates="user")
-
-
-class Food(Base):
-    __tablename__ = 'foods'
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    price = Column(Integer)
-
-    orders = relationship("Order", back_populates="food")
-
-
-class Order(Base):
-    __tablename__ = 'orders'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'))
-    food_id = Column(Integer, ForeignKey('foods.id'))
-
-    user = relationship("User", back_populates="orders")
-    food = relationship("Food", back_populates="orders")
-
-
-DATABASE_URL = "sqlite:///./test.db"
+# SQLAlchemy engine and session configuration
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
+# Function to initialize and populate the database
 def setup_database():
+    # Create all tables defined by Base subclasses
     Base.metadata.create_all(bind=engine)
 
+    # Create a new session
     session = SessionLocal()
 
+    # Sample user data
     users = [
         User(name="Amir", email="amir@example.com", password="password123"),
         User(name="Sara", email="sara@example.com", password="password1234"),
@@ -51,6 +27,8 @@ def setup_database():
         User(name="Zahra", email="Zahra@example.com", password="password123456"),
         User(name="Reza", email="reza@example.com", password="password1234567")
     ]
+
+    # Sample food data
     foods = [
         Food(name="Pizza", price=10),
         Food(name="Burger", price=5),
@@ -58,6 +36,8 @@ def setup_database():
         Food(name="Salad", price=4),
         Food(name="Sushi", price=12)
     ]
+
+    # Sample orders
     orders = [
         Order(user_id=1, food_id=1),
         Order(user_id=2, food_id=2),
@@ -65,14 +45,19 @@ def setup_database():
         Order(user_id=4, food_id=4),
         Order(user_id=5, food_id=5)
     ]
+
+    # Add all data to the session and commit to the database
     session.add_all(users)
-    session.add_all(foods)  
+    session.add_all(foods)
     session.add_all(orders)
     session.commit()
 
+    # Close the session
     session.close()
     print("Database setup complete.")
 
+
+# Run the setup only if the database file doesn't already exist
 if __name__ == "__main__":
     if not os.path.exists("test.db"):
         setup_database()
