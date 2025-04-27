@@ -1,3 +1,4 @@
-test.db
+example.db
 .env
 __pycache__/
+test.ipynb

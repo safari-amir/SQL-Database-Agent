@@ -2,7 +2,16 @@ from pydantic import BaseModel, Field
 from database import SessionLocal, engine
 from state import AgentState
 from utils import get_database_schema
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableConfig
+from sqlalchemy import text, inspect
+from database import *
+from models import *
 
+base_url = "http://127.0.0.1:11434/"
+model = 'codellama:7b'
 
 
 class GetCurrentUser(BaseModel):

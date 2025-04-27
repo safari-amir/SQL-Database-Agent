@@ -1,7 +1,6 @@
 from sqlalchemy import inspect
-from models.database import engine
 
-def get_database_schema():
+def get_database_schema(engine):
     inspector = inspect(engine)
     schema = ""
     for table_name in inspector.get_table_names():
@@ -16,5 +15,4 @@ def get_database_schema():
             schema += col + "\n"
         schema += "\n"
     return schema
-
 

@@ -5,6 +5,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = "sqlite:///src/database/test.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///example.db")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
