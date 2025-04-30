@@ -87,33 +87,60 @@ def convert_nl_to_sql(state: AgentState, config: RunnableConfig):
     current_user = state["current_user"]
     schema = get_database_schema(engine)
     print(f"Converting question to SQL for user '{current_user}': {question}")
-    system = """You are an assistant that converts natural language questions into SQL queries based on the following schema:
+    if state["relevance"].lower() == "order":
+        system = """You are an assistant that converts natural language questions into SQL queries based on the following schema:
 
-{schema}
+    {schema}
 
-The current user is '{current_user}'. Ensure that all query-related data is scoped to this user.
+    The current user is '{current_user}'. Ensure that all query-related data is scoped to this user.
 
-Provide only the SQL query without any explanations. Alias columns appropriately to match the expected keys in the result.
+    Provide only the SQL query without any explanations. Alias columns appropriately to match the expected keys in the result.
 
-For example, alias 'food.name' as 'food_name' and 'food.price' as 'price'.
-""".format(schema=schema, current_user=current_user)
-    convert_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system),
-            ("human", "Question: {question}"),
-        ]
+    For example, alias 'food.name' as 'food_name' and 'food.price' as 'price'.
+    """.format(schema=schema, current_user=current_user)
+        convert_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                ("human", "Question: {question}"),
+            ]
+        )
+        llm = ChatOllama(
+        base_url=base_url,
+        model = model,
+        temperature = 0,
     )
-    llm = ChatOllama(
-    base_url=base_url,
-    model = model,
-    temperature = 0,
-)
-    structured_llm = llm.with_structured_output(ConvertToSQL)
-    sql_generator = convert_prompt | structured_llm
-    result = sql_generator.invoke({"question": question})
-    state["sql_query"] = result.sql_query
-    print(f"Generated SQL query: {state['sql_query']}")
-    return state
+        structured_llm = llm.with_structured_output(ConvertToSQL)
+        sql_generator = convert_prompt | structured_llm
+        result = sql_generator.invoke({"question": question})
+        state["sql_query"] = result.sql_query
+        print(f"Generated SQL query: {state['sql_query']}")
+        return state
+    else :
+        print(f"Converting menu-related question to SQL: {question}")
+        system = """You are an assistant that converts natural language questions about the menu into SQL queries based on the following schema:
+    {schema}
+    Provide only the SQL query without any explanations. Use only the "food" table, as the customer only wants to see the menu.
+    Alias columns appropriately to match the expected keys in the result. For example, alias 'food.name' as 'food_name', 'food.price' as 'price', and 'food.description' as 'food_description'.
+
+    """.format(schema=schema)
+        convert_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                ("human", "Question: {question}"),
+            ]
+        )
+        llm = ChatOllama(
+        base_url=base_url,
+        model = model,
+        temperature = 0,
+    )
+        structured_llm = llm.with_structured_output(ConvertToSQL)
+        sql_generator = convert_prompt | structured_llm
+        result = sql_generator.invoke({"question": question})
+        state["sql_query"] = result.sql_query
+        print(f"Generated SQL query for menu: {state['sql_query']}")
+        return state
+   
 
 def execute_sql(state: AgentState):
     sql_query = state["sql_query"].strip()
@@ -125,12 +152,21 @@ def execute_sql(state: AgentState):
             rows = result.fetchall()
             columns = result.keys()
             if rows:
-                header = ", ".join(columns)
-                state["query_rows"] = [dict(zip(columns, row)) for row in rows]
-                print(f"Raw SQL Query Result: {state['query_rows']}")
-                # Format the result for readability
-                data = "; ".join([f"{row.get('food_name', row.get('name'))} for ${row.get('price', row.get('food_price'))}" for row in state["query_rows"]])
-                formatted_result = f"{header}\n{data}"
+                if state["relevance"].lower() == "order":
+                    header = ", ".join(columns)
+                    state["query_rows"] = [dict(zip(columns, row)) for row in rows]
+                    print(f"Raw SQL Query Result: {state['query_rows']}")
+                    # Format the result for readability
+                    data = "; ".join([f"{row.get('food_name', row.get('name'))} for ${row.get('price', row.get('food_price'))}" for row in state["query_rows"]])
+                    formatted_result = f"{header}\n{data}"
+                else:
+                    header = ", ".join(columns)
+                    state["query_rows"] = [dict(zip(columns, row)) for row in rows]
+                    print(f"Raw SQL Query Result: {state['query_rows']}")
+                    # Format the result for readability
+                    data = "; ".join([f"{row.get('food_name', row.get('name'))} for ${row.get('price', row.get('food_price'))} description {row.get(('description'), row.get('food_description'))} " for row in state["query_rows"]])
+                    formatted_result = f"{header}\n{data}"
+
             else:
                 state["query_rows"] = []
                 formatted_result = "No results found."
@@ -194,7 +230,7 @@ Formulate a clear and understandable answer to the original question in a single
                     ),
                 ]
             )
-        else:
+        elif state["relevance"].lower() == "order":
             # Handle displaying orders
             generate_prompt = ChatPromptTemplate.from_messages(
                 [
@@ -208,6 +244,27 @@ Result:
 {result}
 
 Formulate a clear and understandable answer to the original question in a single sentence, starting with 'Hello {current_user},' and list each item ordered along with its price. For example: 'Hello Bob, you have ordered Lasagne for $14.0 and Spaghetti Carbonara for $15.0.'"""
+                    ),
+                ]
+            )
+        else:
+            # Handle displaying menu items
+            generate_prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", system),
+                    (
+                        "human",
+                        f"""SQL Query:
+{sql}
+Result:
+{result}
+
+Formulate a clear and understandable answer to the original question, starting with 'Hello {current_user},' and present the menu items along with their prices in a well-formatted table instead of a single sentence. For example:** **Hello Bob, here is the menu:**
+ | Item                | Price  | Description                  |
+ |---------------------|--------|------------------------------|
+ | food_name           | price  | description                  | 
+ | food_name           | price  | description                  |
+'"""
                     ),
                 ]
             )
@@ -298,7 +355,7 @@ def end_max_iterations(state: AgentState):
     return state
 
 def relevance_router(state: AgentState):
-    if state["relevance"].lower() == "order":
+    if state["relevance"].lower() == "order" or state["relevance"].lower() == "menu":
         return "convert_to_sql"
     else:
         return "generate_funny_response"
