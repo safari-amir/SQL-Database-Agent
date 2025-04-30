@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
-from state import AgentState
-from nodes import * 
+from agent.state import AgentState
+from agent.nodes import * 
 
 workflow = StateGraph(AgentState)
 

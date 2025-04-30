@@ -1,14 +1,13 @@
 from pydantic import BaseModel, Field
-from database import SessionLocal, engine
-from state import AgentState
-from utils import get_database_schema
+from agent.state import AgentState
+from agent.utils import get_database_schema
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy import text, inspect
-from database import *
-from models import *
+from database.database import *
+from database.models import *
 
 base_url = "http://127.0.0.1:11434/"
 model = 'codellama:7b'
@@ -45,7 +44,7 @@ def get_current_user(state: AgentState, config: RunnableConfig):
 
 class CheckRelevance(BaseModel):
     relevance: str = Field(
-        description="Indicates whether the question is related to the database schema. 'relevant' or 'not_relevant'."
+        description="Indicates whether the question is related to the database schema. 'order' or 'not_relevant' or 'menu'."
     )
 
 def check_relevance(state: AgentState, config: RunnableConfig):
@@ -57,7 +56,7 @@ def check_relevance(state: AgentState, config: RunnableConfig):
 Schema:
 {schema}
 
-Respond with only "relevant" or "not_relevant".
+Respond with only "order" or "not_relevant" or "menu".
 """.format(schema=schema)
     human = f"Question: {question}"
     check_prompt = ChatPromptTemplate.from_messages(
@@ -273,7 +272,7 @@ def regenerate_query(state: AgentState):
 
 def generate_funny_response(state: AgentState):
     print("Generating a funny response for an unrelated question.")
-    system = """You are a charming and funny assistant who responds in a playful manner.
+    system = """You are an assistant who can help with ordering delicious food, and you politely explain that what the person is asking for isn’t related to the restaurant’s work..
     """
     human_message = state["question"]
     funny_prompt = ChatPromptTemplate.from_messages(
@@ -299,7 +298,7 @@ def end_max_iterations(state: AgentState):
     return state
 
 def relevance_router(state: AgentState):
-    if state["relevance"].lower() == "relevant":
+    if state["relevance"].lower() == "order":
         return "convert_to_sql"
     else:
         return "generate_funny_response"

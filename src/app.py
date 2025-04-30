@@ -1,15 +1,15 @@
 import os
 import streamlit as st
-from workflow import app
-from database import SessionLocal
+from agent.workflow import app
+from database.database import SessionLocal
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-from models import *
+from database.models import *
 
 # Fake configuration to simulate a current user context
 fake_config = {
     "configurable": {
-        "current_user_id": "1"
+        "current_user_id": "2"
     }
 }
 
