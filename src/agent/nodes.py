@@ -7,7 +7,9 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy import text, inspect
 from database.database import *
-from database.models import *
+from database.models import *       
+from typing import Literal
+from langgraph.types import interrupt, Command
 
 base_url = "http://127.0.0.1:11434/"
 model = 'codellama:7b'
@@ -349,6 +351,30 @@ def generate_funny_response(state: AgentState):
     print("Generated funny response.")
     return state
 
+def confirm_order(state: AgentState) -> Command[Literal["execute_sql", "cancel_order"]]:
+    summary = 'Hello this is summay'
+    return_to = interrupt({
+        "question": "Do you want to confirm the order?",
+        "options": ["Yes", "No"],
+        "summary": summary,
+
+    })
+    
+
+    if return_to == "Yes":
+        print("User confirmed the order.")
+        state['query_result'] = 'sefaresh shoma sabt shod'
+        return Command(goto="execute_sql")
+    else:
+        print("User canceled the order.")
+        state["query_result"] = "Order canceled."
+        return Command(goto="cancel_order")
+    
+def cancel_order(state: AgentState):
+    state["query_result"] = "Order canceled."
+    print("Order has been canceled.")
+    return state    
+
 def end_max_iterations(state: AgentState):
     state["query_result"] = "Please try again."
     print("Maximum attempts reached. Ending the workflow.")
@@ -359,7 +385,13 @@ def relevance_router(state: AgentState):
         return "convert_to_sql"
     else:
         return "generate_funny_response"
-
+    
+def confirm_router(state: AgentState):
+    if state["relevance"].lower() == "order":
+        return "confirm_order"
+    else:
+        return "execute_sql"
+    
 def check_attempts_router(state: AgentState):
     if state["attempts"] < 3:
         return "convert_to_sql"

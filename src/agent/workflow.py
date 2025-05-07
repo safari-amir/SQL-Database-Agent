@@ -1,6 +1,10 @@
 from langgraph.graph import StateGraph, END
 from agent.state import AgentState
 from agent.nodes import * 
+from langgraph.checkpoint.memory import MemorySaver
+
+# Set up memory
+memory = MemorySaver()
 
 workflow = StateGraph(AgentState)
 
@@ -12,6 +16,8 @@ workflow.add_node("generate_human_readable_answer", generate_human_readable_answ
 workflow.add_node("regenerate_query", regenerate_query)
 workflow.add_node("generate_funny_response", generate_funny_response)
 workflow.add_node("end_max_iterations", end_max_iterations)
+workflow.add_node("confirm_order", confirm_order)
+workflow.add_node("cancel_order", cancel_order)
 
 workflow.add_edge("get_current_user", "check_relevance")
 
@@ -24,7 +30,16 @@ workflow.add_conditional_edges(
     },
 )
 
-workflow.add_edge("convert_to_sql", "execute_sql")
+#workflow.add_edge("convert_to_sql", "execute_sql")
+workflow.add_conditional_edges(
+    "convert_to_sql",
+    confirm_router,
+    {
+        "confirm_order": "confirm_order",
+        "execute_sql": "execute_sql",
+    },
+)
+
 
 workflow.add_conditional_edges(
     "execute_sql",
@@ -44,10 +59,12 @@ workflow.add_conditional_edges(
     },
 )
 
+workflow.add_edge("cancel_order", END)
+
 workflow.add_edge("generate_human_readable_answer", END)
 workflow.add_edge("generate_funny_response", END)
 workflow.add_edge("end_max_iterations", END)
 
 workflow.set_entry_point("get_current_user")
 
-app = workflow.compile()
+app = workflow.compile(checkpointer=memory)
