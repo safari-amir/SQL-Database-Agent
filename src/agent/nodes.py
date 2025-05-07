@@ -1,14 +1,15 @@
 from pydantic import BaseModel, Field
-from database import SessionLocal, engine
-from state import AgentState
-from utils import get_database_schema
+from agent.state import AgentState
+from agent.utils import get_database_schema
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy import text, inspect
-from database import *
-from models import *
+from database.database import *
+from database.models import *       
+from typing import Literal
+from langgraph.types import interrupt, Command
 
 base_url = "http://127.0.0.1:11434/"
 model = 'codellama:7b'
@@ -45,7 +46,7 @@ def get_current_user(state: AgentState, config: RunnableConfig):
 
 class CheckRelevance(BaseModel):
     relevance: str = Field(
-        description="Indicates whether the question is related to the database schema. 'relevant' or 'not_relevant'."
+        description="Indicates whether the question is related to the database schema. 'order' or 'not_relevant' or 'menu'."
     )
 
 def check_relevance(state: AgentState, config: RunnableConfig):
@@ -57,7 +58,7 @@ def check_relevance(state: AgentState, config: RunnableConfig):
 Schema:
 {schema}
 
-Respond with only "relevant" or "not_relevant".
+Respond with only "order" or "not_relevant" or "menu".
 """.format(schema=schema)
     human = f"Question: {question}"
     check_prompt = ChatPromptTemplate.from_messages(
@@ -88,33 +89,60 @@ def convert_nl_to_sql(state: AgentState, config: RunnableConfig):
     current_user = state["current_user"]
     schema = get_database_schema(engine)
     print(f"Converting question to SQL for user '{current_user}': {question}")
-    system = """You are an assistant that converts natural language questions into SQL queries based on the following schema:
+    if state["relevance"].lower() == "order":
+        system = """You are an assistant that converts natural language questions into SQL queries based on the following schema:
 
-{schema}
+    {schema}
 
-The current user is '{current_user}'. Ensure that all query-related data is scoped to this user.
+    The current user is '{current_user}'. Ensure that all query-related data is scoped to this user.
 
-Provide only the SQL query without any explanations. Alias columns appropriately to match the expected keys in the result.
+    Provide only the SQL query without any explanations. Alias columns appropriately to match the expected keys in the result.
 
-For example, alias 'food.name' as 'food_name' and 'food.price' as 'price'.
-""".format(schema=schema, current_user=current_user)
-    convert_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system),
-            ("human", "Question: {question}"),
-        ]
+    For example, alias 'food.name' as 'food_name' and 'food.price' as 'price'.
+    """.format(schema=schema, current_user=current_user)
+        convert_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                ("human", "Question: {question}"),
+            ]
+        )
+        llm = ChatOllama(
+        base_url=base_url,
+        model = model,
+        temperature = 0,
     )
-    llm = ChatOllama(
-    base_url=base_url,
-    model = model,
-    temperature = 0,
-)
-    structured_llm = llm.with_structured_output(ConvertToSQL)
-    sql_generator = convert_prompt | structured_llm
-    result = sql_generator.invoke({"question": question})
-    state["sql_query"] = result.sql_query
-    print(f"Generated SQL query: {state['sql_query']}")
-    return state
+        structured_llm = llm.with_structured_output(ConvertToSQL)
+        sql_generator = convert_prompt | structured_llm
+        result = sql_generator.invoke({"question": question})
+        state["sql_query"] = result.sql_query
+        print(f"Generated SQL query: {state['sql_query']}")
+        return state
+    else :
+        print(f"Converting menu-related question to SQL: {question}")
+        system = """You are an assistant that converts natural language questions about the menu into SQL queries based on the following schema:
+    {schema}
+    Provide only the SQL query without any explanations. Use only the "food" table, as the customer only wants to see the menu.
+    Alias columns appropriately to match the expected keys in the result. For example, alias 'food.name' as 'food_name', 'food.price' as 'price', and 'food.description' as 'food_description'.
+
+    """.format(schema=schema)
+        convert_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                ("human", "Question: {question}"),
+            ]
+        )
+        llm = ChatOllama(
+        base_url=base_url,
+        model = model,
+        temperature = 0,
+    )
+        structured_llm = llm.with_structured_output(ConvertToSQL)
+        sql_generator = convert_prompt | structured_llm
+        result = sql_generator.invoke({"question": question})
+        state["sql_query"] = result.sql_query
+        print(f"Generated SQL query for menu: {state['sql_query']}")
+        return state
+   
 
 def execute_sql(state: AgentState):
     sql_query = state["sql_query"].strip()
@@ -126,12 +154,21 @@ def execute_sql(state: AgentState):
             rows = result.fetchall()
             columns = result.keys()
             if rows:
-                header = ", ".join(columns)
-                state["query_rows"] = [dict(zip(columns, row)) for row in rows]
-                print(f"Raw SQL Query Result: {state['query_rows']}")
-                # Format the result for readability
-                data = "; ".join([f"{row.get('food_name', row.get('name'))} for ${row.get('price', row.get('food_price'))}" for row in state["query_rows"]])
-                formatted_result = f"{header}\n{data}"
+                if state["relevance"].lower() == "order":
+                    header = ", ".join(columns)
+                    state["query_rows"] = [dict(zip(columns, row)) for row in rows]
+                    print(f"Raw SQL Query Result: {state['query_rows']}")
+                    # Format the result for readability
+                    data = "; ".join([f"{row.get('food_name', row.get('name'))} for ${row.get('price', row.get('food_price'))}" for row in state["query_rows"]])
+                    formatted_result = f"{header}\n{data}"
+                else:
+                    header = ", ".join(columns)
+                    state["query_rows"] = [dict(zip(columns, row)) for row in rows]
+                    print(f"Raw SQL Query Result: {state['query_rows']}")
+                    # Format the result for readability
+                    data = "; ".join([f"{row.get('food_name', row.get('name'))} for ${row.get('price', row.get('food_price'))} description {row.get(('description'), row.get('food_description'))} " for row in state["query_rows"]])
+                    formatted_result = f"{header}\n{data}"
+
             else:
                 state["query_rows"] = []
                 formatted_result = "No results found."
@@ -195,7 +232,7 @@ Formulate a clear and understandable answer to the original question in a single
                     ),
                 ]
             )
-        else:
+        elif state["relevance"].lower() == "order":
             # Handle displaying orders
             generate_prompt = ChatPromptTemplate.from_messages(
                 [
@@ -209,6 +246,27 @@ Result:
 {result}
 
 Formulate a clear and understandable answer to the original question in a single sentence, starting with 'Hello {current_user},' and list each item ordered along with its price. For example: 'Hello Bob, you have ordered Lasagne for $14.0 and Spaghetti Carbonara for $15.0.'"""
+                    ),
+                ]
+            )
+        else:
+            # Handle displaying menu items
+            generate_prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", system),
+                    (
+                        "human",
+                        f"""SQL Query:
+{sql}
+Result:
+{result}
+
+Formulate a clear and understandable answer to the original question, starting with 'Hello {current_user},' and present the menu items along with their prices in a well-formatted table instead of a single sentence. For example:** **Hello Bob, here is the menu:**
+ | Item                | Price  | Description                  |
+ |---------------------|--------|------------------------------|
+ | food_name           | price  | description                  | 
+ | food_name           | price  | description                  |
+'"""
                     ),
                 ]
             )
@@ -273,7 +331,7 @@ def regenerate_query(state: AgentState):
 
 def generate_funny_response(state: AgentState):
     print("Generating a funny response for an unrelated question.")
-    system = """You are a charming and funny assistant who responds in a playful manner.
+    system = """You are an assistant who can help with ordering delicious food, and you politely explain that what the person is asking for isn’t related to the restaurant’s work..
     """
     human_message = state["question"]
     funny_prompt = ChatPromptTemplate.from_messages(
@@ -293,17 +351,47 @@ def generate_funny_response(state: AgentState):
     print("Generated funny response.")
     return state
 
+def confirm_order(state: AgentState) -> Command[Literal["execute_sql", "cancel_order"]]:
+    summary = 'Hello this is summay'
+    return_to = interrupt({
+        "question": "Do you want to confirm the order?",
+        "options": ["Yes", "No"],
+        "summary": summary,
+
+    })
+    
+
+    if return_to == "Yes":
+        print("User confirmed the order.")
+        state['query_result'] = 'sefaresh shoma sabt shod'
+        return Command(goto="execute_sql")
+    else:
+        print("User canceled the order.")
+        state["query_result"] = "Order canceled."
+        return Command(goto="cancel_order")
+    
+def cancel_order(state: AgentState):
+    state["query_result"] = "Order canceled."
+    print("Order has been canceled.")
+    return state    
+
 def end_max_iterations(state: AgentState):
     state["query_result"] = "Please try again."
     print("Maximum attempts reached. Ending the workflow.")
     return state
 
 def relevance_router(state: AgentState):
-    if state["relevance"].lower() == "relevant":
+    if state["relevance"].lower() == "order" or state["relevance"].lower() == "menu":
         return "convert_to_sql"
     else:
         return "generate_funny_response"
-
+    
+def confirm_router(state: AgentState):
+    if state["relevance"].lower() == "order":
+        return "confirm_order"
+    else:
+        return "execute_sql"
+    
 def check_attempts_router(state: AgentState):
     if state["attempts"] < 3:
         return "convert_to_sql"

@@ -23,6 +23,7 @@ class Food(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     price = Column(Float)
+    description = Column(String)
 
     orders = relationship("Order", back_populates="food")
 

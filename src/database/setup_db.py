@@ -23,10 +23,11 @@ def init_db():
     session.commit()
 
     foods = [
-        Food(name="spaghetti", price=12.5),
-        Food(name="salad", price=15.0),
-        Food(name="sandwich", price=14.0),
+        Food(name="spaghetti", price=12.5, description="Classic Italian pasta with rich tomato sauce."),
+        Food(name="salad", price=15.0, description="Fresh garden vegetables with a light vinaigrette."),
+        Food(name="sandwich", price=14.0, description="Grilled chicken sandwich with lettuce and mayo."),
     ]
+
     session.add_all(foods)
     session.commit()
 
